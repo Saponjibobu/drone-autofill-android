@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Atur isi DRONE Autofill</title>
+<style>
+  :root {
+    --bg: #f5f3f0; --card: #ffffff; --text: #24201c; --muted: #6d655d;
+    --line: #e4dfd8; --accent: #6b5a4b; --accent-text: #ffffff; --accent-soft: #efe9e2; --ok: #1d6b3f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #171513; --card: #221f1c; --text: #eeeae5; --muted: #a9a097;
+      --line: #3a3530; --accent: #c9ae93; --accent-text: #171513; --accent-soft: #2e2924; --ok: #4cc98a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, Roboto, sans-serif; }
+  header { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 8px; padding: 10px 16px;
+    background: var(--card); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 17px; margin: 0; flex: 1; }
+  #saved { font-size: 12px; color: var(--ok); }
+  main { padding: 12px 16px 40px; max-width: 720px; margin: 0 auto; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 12px; }
+  h2 { font-size: 14px; margin: 0 0 10px; color: var(--accent); }
+  .field { margin-bottom: 10px; }
+  label.q { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+  input, select, textarea { width: 100%; padding: 9px 10px; font: inherit; color: var(--text); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 8px; }
+  textarea { min-height: 96px; resize: vertical; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  button { font: inherit; border-radius: 8px; padding: 8px 12px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+  button.on, button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+  .note { font-size: 13px; color: var(--muted); margin: 0 0 10px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Atur isi</h1>
+  <span id="saved"></span>
+  <button class="primary" id="btnDone">Selesai</button>
+</header>
+<main>
+  <section>
+    <h2>Identitas</h2>
+    <p class="note">Tulis persis sama dengan pilihan di form.</p>
+    <div class="field"><label class="q" for="id-jabatan">Jabatan</label>
+      <select id="id-jabatan"><option>Specialist</option><option>Work Unit Head</option></select></div>
+    <div class="field"><label class="q" for="id-nama">Nama Specialist</label><input id="id-nama" autocomplete="off"></div>
+    <div class="field"><label class="q" for="id-biro">Biro</label><input id="id-biro" autocomplete="off"></div>
+    <div class="field"><label class="q" for="id-satker">Satuan Kerja</label><input id="id-satker" autocomplete="off"></div>
+    <div class="field"><label class="q" for="id-status">Status Kehadiran</label><select id="id-status"></select></div>
+  </section>
+
+  <section>
+    <h2>Rentang jam aktivitas</h2>
+    <div class="row2">
+      <div class="field"><label class="q" for="jam-awal">Paling awal</label><input type="time" id="jam-awal"></div>
+      <div class="field"><label class="q" for="jam-akhir">Paling akhir</label><input type="time" id="jam-akhir"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Isi per hari</h2>
+    <p class="note" id="weekNote"></p>
+    <div class="tabs" id="varTabs"></div>
+    <div class="tabs" id="dayTabs"></div>
+    <div id="editor"></div>
+  </section>
+
+  <button id="btnReset">Kembalikan isi &amp; identitas bawaan</button>
+</main>
+<script src="defaults.js"></script>
+<script>
+var HARI = ["", "Senin", "Selasa", "Rabu", "Kamis", "Jumat"];
+var PILAR = ["", "Safety Resilience", "Productivity & Quality", "Low Cost Operation", "Green Standard", "Continuous Improvement"];
+var LABEL_AB = {
+  1: ["Safety Inspection", "Coaching dan Pemahaman SOP/WI"],
+  2: ["Aktivitas penunjang target, produktivitas & kualitas", "Hasil/realisasi dibandingkan target (kuantitatif)"],
+  3: ["Upaya efisiensi / optimalisasi sumber daya", "Hasil atau manfaat dari upaya tersebut"],
+  4: ["Aktivitas penerapan Green Standard", "Hasil atau manfaat dari upaya tersebut"],
+  5: ["Improvement / inovasi / problem solving", "Hasil atau progres improvement"]
+};
+
+var store = window.Android || {
+  loadConfig: function () { try { return localStorage.getItem("drone-cfg") || ""; } catch (e) { return ""; } },
+  saveConfig: function (j) { try { localStorage.setItem("drone-cfg", j); } catch (e) {} return true; },
+  resetConfig: function () { try { localStorage.removeItem("drone-cfg"); } catch (e) {} },
+  close: function () { history.back(); }
+};
+
+var state, curV, curD;
+function load() {
+  var s = null;
+  try { s = JSON.parse(store.loadConfig() || "null"); } catch (e) {}
+  state = window.droneMerge(s);
+}
+var savedTimer;
+function save() {
+  store.saveConfig(JSON.stringify({ identitas: state.identitas, jam: state.jam, content: state.content }));
+  var n = document.getElementById("saved"); n.textContent = "Tersimpan";
+  clearTimeout(savedTimer); savedTimer = setTimeout(function () { n.textContent = ""; }, 1500);
+}
+function el(tag, attrs, text) {
+  var n = document.createElement(tag);
+  for (var k in (attrs || {})) n.setAttribute(k, attrs[k]);
+  if (text != null) n.textContent = text;
+  return n;
+}
+function isoWeek(d) {
+  var t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  var wd = t.getUTCDay() || 7; t.setUTCDate(t.getUTCDate() + 4 - wd);
+  return Math.ceil(((t - new Date(Date.UTC(t.getUTCFullYear(), 0, 1))) / 86400000 + 1) / 7);
+}
+
+function renderIdentitas() {
+  var st = document.getElementById("id-status"); st.innerHTML = "";
+  window.DRONE_STATUS.forEach(function (s) { st.appendChild(el("option", { value: s }, s)); });
+  Object.keys(window.DRONE_DEFAULTS.identitas).forEach(function (k) {
+    var n = document.getElementById("id-" + k);
+    n.value = state.identitas[k];
+    n.oninput = n.onchange = function () { state.identitas[k] = n.value; save(); };
+  });
+  ["awal", "akhir"].forEach(function (k) {
+    var n = document.getElementById("jam-" + k);
+    n.value = state.jam[k];
+    n.onchange = function () { if (/^\d{2}:\d{2}$/.test(n.value)) { state.jam[k] = n.value; save(); } };
+  });
+}
+
+function renderTabs() {
+  var vt = document.getElementById("varTabs"); vt.innerHTML = "";
+  Object.keys(state.content).forEach(function (v) {
+    var b = el("button", { type: "button" }, "Variasi " + v);
+    if (v === curV) b.className = "on";
+    b.onclick = function () { curV = v; renderTabs(); renderEditor(); };
+    vt.appendChild(b);
+  });
+  var dt = document.getElementById("dayTabs"); dt.innerHTML = "";
+  for (var d = 1; d <= 5; d++) (function (d) {
+    var b = el("button", { type: "button" }, HARI[d].slice(0, 3));
+    if (d === curD) b.className = "on";
+    b.onclick = function () { curD = d; renderTabs(); renderEditor(); };
+    dt.appendChild(b);
+  })(d);
+}
+
+function fieldBox(label, node) {
+  var w = el("div", { "class": "field" });
+  w.appendChild(el("label", { "class": "q" }, label));
+  w.appendChild(node);
+  return w;
+}
+
+function renderEditor() {
+  var box = document.getElementById("editor"); box.innerHTML = "";
+  var c = state.content[curV][curD];
+  box.appendChild(el("p", { "class": "note" }, HARI[curD] + ", variasi " + curV + ": " + PILAR[curD] + " diisi lengkap."));
+  function ta(f) {
+    var t = el("textarea"); t.value = c[f];
+    t.oninput = function () { c[f] = t.value; save(); };
+    return t;
+  }
+  box.appendChild(fieldBox("Safety Talk (diisi setiap hari)", ta("talk")));
+  box.appendChild(fieldBox(LABEL_AB[curD][0], ta("a")));
+  box.appendChild(fieldBox(LABEL_AB[curD][1], ta("b")));
+  var s = el("select");
+  window.DRONE_KATEGORI.forEach(function (k) { s.appendChild(el("option", { value: k }, k)); });
+  s.value = c.cat;
+  s.onchange = function () { c.cat = s.value; save(); };
+  box.appendChild(fieldBox("Saran & Rekomendasi: kategori", s));
+  box.appendChild(fieldBox("Saran & Rekomendasi: isi", ta("saran")));
+}
+
+document.getElementById("btnDone").onclick = function () { store.close(); };
+document.getElementById("btnReset").onclick = function () {
+  if (!confirm("Kembalikan semua isi dan identitas ke bawaan? Perubahan Anda akan hilang.")) return;
+  store.resetConfig(); load(); renderIdentitas(); renderTabs(); renderEditor();
+};
+
+load();
+var keys = Object.keys(state.content);
+curV = keys[(isoWeek(new Date()) - 1) % keys.length];
+var wd = new Date().getDay();
+curD = wd >= 1 && wd <= 5 ? wd : 1;
+document.getElementById("weekNote").textContent = "4 variasi isi bergantian tiap minggu. Minggu ini memakai variasi " + curV + ". Ubah teks sesuai kegiatan Anda; perubahan tersimpan otomatis.";
+renderIdentitas(); renderTabs(); renderEditor();
+</script>
+</body>
+</html>
